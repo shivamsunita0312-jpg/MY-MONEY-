@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Money</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F766E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="My Money">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#EDF1F3;--card:#fff;--ink:#14232B;--mut:#5B6B73;--line:#D5DEE2;--acc:#0F766E;--acc-t:#fff;--good:#15803D;--bad:#B42318;color-scheme:light;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1A1F;--card:#16252C;--ink:#E6EEF1;--mut:#93A5AD;--line:#27383F;--acc:#2DD4BF;--acc-t:#06201C;--good:#4ADE80;--bad:#F87171;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0F1A1F;--card:#16252C;--ink:#E6EEF1;--mut:#93A5AD;--line:#27383F;--acc:#2DD4BF;--acc-t:#06201C;--good:#4ADE80;--bad:#F87171;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.1rem;margin:0 0 12px;font-weight:600;color:var(--mut)}
+h2{font-size:1.05rem;margin:22px 0 8px}
+.net{font-size:2.6rem;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 4px}
+.strip div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.strip b{display:block;font-size:1.05rem}
+small,.mut{color:var(--mut);font-size:.82rem}
+nav{display:flex;gap:4px;margin:18px 0 8px;border-bottom:2px solid var(--line)}
+nav button{flex:1;background:none;border:0;padding:10px 4px;font:inherit;font-weight:600;color:var(--mut);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+nav button.on{color:var(--acc);border-color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.row>div:first-child{min-width:0}
+form{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;min-width:0;flex:1 1 110px}
+textarea{width:100%;min-height:90px}
+button.b{background:var(--acc);color:var(--acc-t);border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.x{background:none;border:0;color:var(--mut);cursor:pointer;font-size:1.1rem;padding:2px 6px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--acc)}
+.bar i.over{background:var(--bad)}
+.good{color:var(--good)}.bad{color:var(--bad)}
+.done{opacity:.5}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.cols{grid-template-columns:1fr}.net{font-size:2.1rem}}
+details{margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+  <h1>My Money</h1>
+  <div class="net" id="net"></div>
+  <small>Net worth: investments + money owed to you − money you owe</small>
+  <div class="strip" id="strip"></div>
+  <nav id="tabs"></nav>
+  <div id="app"></div>
+  <details>
+    <summary>Backup and restore</summary>
+    <p class="mut">Your data lives only in this browser. Copy this text somewhere safe, and paste it back here to restore.</p>
+    <textarea id="bk"></textarea>
+    <button class="b" data-a="restore">Restore from text</button>
+  </details>
+</main>
+<script>
+const K='mymoney.v1';
+let S={tx:[],limits:{},inv:[],goals:[],loans:[]},tab='budget',mo=new Date().toISOString().slice(0,7);
+try{const r=localStorage.getItem(K);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}};
+const uid=()=>Math.random().toString(36).slice(2,9);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const f=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n||0);
+const sum=(a,k)=>a.reduce((t,x)=>t+(+x[k]||0),0);
+const settled=l=>l.done||(l.amt>0&&l.paid>=l.amt);
+const left=l=>settled(l)?0:Math.max(0,l.amt-l.paid);
+const bar=(p,o)=>`<div class="bar"><i class="${o?'over':''}" style="width:${Math.max(0,Math.min(100,p))}%"></i></div>`;
+const today=()=>new Date().toISOString().slice(0,10);
+const del=(c,i)=>`<button class="x" data-del="${c}:${i}" aria-label="Delete">✕</button>`;
+
+function budget(){
+  const t=S.tx.filter(x=>x.d.startsWith(mo)),inc=sum(t.filter(x=>x.type==='in'),'amt'),sp=t.filter(x=>x.type==='out');
+  const spent=sum(sp,'amt'),by={};sp.forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amt);
+  const cats=[...new Set([...Object.keys(S.limits),...Object.keys(by)])];
+  return `<form><input type="month" value="${mo}" id="mo" aria-label="Month"></form>
+  <div class="strip"><div><small>Income</small><b class="good">${f(inc)}</b></div><div><small>Spent</small><b>${f(spent)}</b></div><div><small>Left</small><b class="${inc-spent<0?'bad':''}">${f(inc-spent)}</b></div></div>
+  <h2>Add income or expense</h2>
+  <form data-f="tx"><select name="type"><option value="out">Expense</option><option value="in">Income</option></select>
+  <input name="cat" list="cl" placeholder="Category" required><datalist id="cl">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+  <input name="amt" type="number" min="0" step="any" placeholder="Amount" required><input name="note" placeholder="Note (optional)"><input name="d" type="date" value="${today()}" required><button class="b">Add</button></form>
+  <h2>Category limits</h2>
+  ${cats.map(c=>{const s=by[c]||0,l=S.limits[c];return `<div class="card"><div class="row"><div><b>${esc(c)}</b><br><small>${f(s)}${l?' of '+f(l):' spent, no limit set'}</small></div>${l?del('limits',esc(c)):''}</div>${l?bar(s/l*100,s>l):''}</div>`}).join('')||'<p class="mut">Set a monthly limit for a category below.</p>'}
+  <form data-f="limit"><input name="cat" list="cl" placeholder="Category" required><input name="amt" type="number" min="1" step="any" placeholder="Monthly limit" required><button class="b">Set limit</button></form>
+  <h2>This month’s entries</h2>
+  ${t.slice().sort((a,b)=>b.d.localeCompare(a.d)).map(x=>`<div class="card row"><div><b>${esc(x.cat)}</b> <small>${x.d}${x.note?' · '+esc(x.note):''}</small></div><div><b class="${x.type==='in'?'good':''}">${x.type==='in'?'+':'−'}${f(x.amt)}</b>${del('tx',x.id)}</div></div>`).join('')||'<p class="mut">Nothing yet for this month.</p>'}`;
+}
+
+function invest(){
+  const tot=sum(S.inv,'value'),cost=sum(S.inv,'invested'),g=tot-cost,by={};
+  S.inv.forEach(i=>by[i.kind]=(by[i.kind]||0)+i.value);
+  return `<div class="strip"><div><small>Invested</small><b>${f(cost)}</b></div><div><small>Value now</small><b>${f(tot)}</b></div><div><small>Gain</small><b class="${g<0?'bad':'good'}">${f(g)}${cost?' ('+(g/cost*100).toFixed(1)+'%)':''}</b></div></div>
+  <h2>Add holding</h2>
+  <form data-f="inv"><input name="name" placeholder="Name (e.g. Nifty 50 fund)" required><select name="kind">${['Stocks','Mutual fund','Fixed deposit','Gold','Crypto','Other'].map(k=>`<option>${k}</option>`).join('')}</select>
+  <input name="invested" type="number" min="0" step="any" placeholder="Amount invested" required><input name="value" type="number" min="0" step="any" placeholder="Value now" required><button class="b">Add</button></form>
+  ${S.inv.map(i=>{const gg=i.value-i.invested;return `<div class="card"><div class="row"><div><b>${esc(i.name)}</b> <small>${esc(i.kind)}</small><br><small>${f(i.invested)} → ${f(i.value)}</small></div><div><b class="${gg<0?'bad':'good'}">${gg>=0?'+':''}${i.invested?(gg/i.invested*100).toFixed(1):0}%</b>${del('inv',i.id)}</div></div>
+  <form data-f="invv"><input type="hidden" name="id" value="${i.id}"><input name="value" type="number" min="0" step="any" placeholder="Update value now" required><button class="b">Update</button></form></div>`}).join('')||'<p class="mut">Add your first holding to start tracking.</p>'}
+  ${tot?`<h2>Where your money sits</h2>`+Object.entries(by).map(([k,v])=>`<div class="card"><div class="row"><b>${esc(k)}</b><span>${f(v)} · ${(v/tot*100).toFixed(0)}%</span></div>${bar(v/tot*100)}</div>`).join(''):''}`;
+}
+
+function goals(){
+  return `<h2>New goal</h2>
+  <form data-f="goal"><input name="name" placeholder="Goal (e.g. Emergency fund)" required><input name="target" type="number" min="1" step="any" placeholder="Target amount" required><input name="saved" type="number" min="0" step="any" placeholder="Saved so far"><input name="due" type="date" aria-label="Target date"><button class="b">Add goal</button></form>
+  ${S.goals.map(g=>{const p=g.saved/g.target*100,rem=Math.max(0,g.target-g.saved);let m='';
+    if(g.due&&rem>0){const n=Math.max(1,Math.ceil((new Date(g.due)-new Date())/2629800000));m=`Save ${f(rem/n)} a month for ${n} month${n>1?'s':''} to reach it by ${g.due}.`}
+    return `<div class="card"><div class="row"><div><b>${esc(g.name)}</b><br><small>${f(g.saved)} of ${f(g.target)} · ${p.toFixed(0)}%</small></div>${del('goals',g.id)}</div>${bar(p)}
+    <small>${rem===0?'Goal reached.':m}</small>
+    <form data-f="goalAdd"><input type="hidden" name="id" value="${g.id}"><input name="amt" type="number" step="any" placeholder="Add savings" required><button class="b">Add</button></form></div>`}).join('')||'<p class="mut">Set a goal to see how much to save each month.</p>'}`;
+}
+
+function loanList(dir){
+  const l=S.loans.filter(x=>x.dir===dir);
+  return l.map(x=>`<div class="card ${settled(x)?'done':''}"><div class="row"><div><b>${esc(x.who)}</b><br><small>${esc(x.what||'')}${x.amt?' · '+f(x.paid)+' of '+f(x.amt)+' repaid':''}${x.due?' · due '+x.due:''}</small></div><div>${settled(x)?'<small>Settled</small>':x.amt?`<b>${f(left(x))}</b>`:'<small>Not returned</small>'}${del('loans',x.id)}</div></div>
+  ${settled(x)?'':`<form data-f="pay"><input type="hidden" name="id" value="${x.id}">${x.amt?`<input name="amt" type="number" min="0" step="any" placeholder="Payment received or made" required><button class="b">Record</button>`:''}<button type="button" class="b" data-done="${x.id}">Mark returned</button></form>`}</div>`).join('')||'<p class="mut">None.</p>';
+}
+function debts(){
+  const o=sum(S.loans.filter(x=>x.dir==='owe').map(x=>({v:left(x)})),'v'),m=sum(S.loans.filter(x=>x.dir==='owed').map(x=>({v:left(x)})),'v');
+  return `<div class="strip"><div><small>You owe</small><b class="bad">${f(o)}</b></div><div><small>Owed to you</small><b class="good">${f(m)}</b></div><div><small>Difference</small><b>${f(m-o)}</b></div></div>
+  <h2>Record a debt or loan</h2>
+  <form data-f="loan"><select name="dir"><option value="owed">I lent</option><option value="owe">I borrowed</option></select><input name="who" placeholder="Person" required><input name="what" placeholder="What (money, book, laptop…)"><input name="amt" type="number" min="0" step="any" placeholder="Amount (blank for an item)"><input name="due" type="date" aria-label="Due date"><button class="b">Save</button></form>
+  <div class="cols"><div><h2>Owed to you</h2>${loanList('owed')}</div><div><h2>You owe</h2>${loanList('owe')}</div></div>`;
+}
+
+const H={
+  tx:d=>S.tx.push({id:uid(),d:d.d,type:d.type,cat:d.cat.trim()||'General',amt:+d.amt,note:d.note}),
+  limit:d=>S.limits[d.cat.trim()]=+d.amt,
+  inv:d=>S.inv.push({id:uid(),name:d.name,kind:d.kind,invested:+d.invested,value:+d.value}),
+  invv:d=>{S.inv.find(i=>i.id===d.id).value=+d.value},
+  goal:d=>S.goals.push({id:uid(),name:d.name,target:+d.target,saved:+d.saved||0,due:d.due}),
+  goalAdd:d=>{S.goals.find(g=>g.id===d.id).saved+=+d.amt},
+  loan:d=>S.loans.push({id:uid(),dir:d.dir,who:d.who,what:d.what,amt:+d.amt||0,paid:0,due:d.due}),
+  pay:d=>{S.loans.find(l=>l.id===d.id).paid+=+d.amt}
+};
+const TABS={budget:['Budget',budget],invest:['Invest',invest],goals:['Goals',goals],debts:['Debts',debts]};
+
+function render(){
+  const inv=sum(S.inv,'value'),a=sum(S.loans.filter(x=>x.dir==='owed').map(x=>({v:left(x)})),'v'),b=sum(S.loans.filter(x=>x.dir==='owe').map(x=>({v:left(x)})),'v');
+  document.getElementById('net').textContent=f(inv+a-b);
+  document.getElementById('strip').innerHTML=`<div><small>Investments</small><b>${f(inv)}</b></div><div><small>Owed to you</small><b class="good">${f(a)}</b></div><div><small>You owe</small><b class="bad">${f(b)}</b></div>`;
+  document.getElementById('tabs').innerHTML=Object.entries(TABS).map(([k,v])=>`<button class="${k===tab?'on':''}" data-tab="${k}">${v[0]}</button>`).join('');
+  document.getElementById('app').innerHTML=TABS[tab][1]();
+  document.getElementById('bk').value=JSON.stringify(S);
+}
+document.addEventListener('submit',e=>{const k=e.target.dataset.f;if(!k)return;e.preventDefault();H[k](Object.fromEntries(new FormData(e.target)));save();render()});
+document.addEventListener('change',e=>{if(e.target.id==='mo'&&e.target.value){mo=e.target.value;render()}});
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button');if(!t)return;
+  if(t.dataset.tab){tab=t.dataset.tab;return render()}
+  if(t.dataset.del){const[c,i]=t.dataset.del.split(':');if(c==='limits')delete S.limits[i];else S[c]=S[c].filter(x=>x.id!==i);save();return render()}
+  if(t.dataset.done){const l=S.loans.find(x=>x.id===t.dataset.done);l.done=true;save();return render()}
+  if(t.dataset.a==='restore'){try{const d=JSON.parse(document.getElementById('bk').value);S=Object.assign({tx:[],limits:{},inv:[],goals:[],loans:[]},d);save();render()}catch(err){alert('That text is not valid backup data.')}}
+});
+render();
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
